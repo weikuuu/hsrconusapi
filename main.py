@@ -1,10 +1,14 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 import uvicorn
 from models import LightCone
-from data import light_cones
+from database import Base, engine, get_db
+from sqlalchemy.orm import Session
+import db_models
 
 
 app = FastAPI()
+
+Base.metadata.create_all(bind=engine)
 
 
 @app.get("/")
@@ -13,51 +17,110 @@ def root():
 
 
 @app.get("/light-cones")
-def all_light_cones():
-    return light_cones
+def get_light_cones(db: Session = Depends(get_db)):
+    return db.query(db_models.LightConeDB).all()
 
 
 @app.get("/light-cones/{cone_id}")
-def get_light_cone(cone_id: int):
-    for light_cone in light_cones:
-        if light_cone.id == cone_id:
-            return light_cone
-    raise HTTPException(status_code=404,detail="Light cone not found")
+def get_light_cone(
+    cone_id: int,
+    db: Session = Depends(get_db),
+):
+    cone = (
+        db.query(db_models.LightConeDB)
+        .filter(db_models.LightConeDB.id == cone_id)
+        .first()
+    )
+
+    if cone is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Light cone not found",
+        )
+
+    return cone
 
 
 @app.post("/light-cones", status_code=201)
-def create_light_cone(light_cone: LightCone):
-    for existing_cone in light_cones:
-        if existing_cone.id == light_cone.id:
-            raise HTTPException(
-                status_code=409,
-                detail="A light cone with this id already exists"
-            )
+def create_light_cone(
+    new_cone: LightCone,
+    db: Session = Depends(get_db),
+):
+    existing_cone = (
+        db.query(db_models.LightConeDB)
+        .filter(db_models.LightConeDB.id == new_cone.id)
+        .first()
+    )
 
-    light_cones.append(light_cone)
-    return light_cone
+    if existing_cone:
+        raise HTTPException(
+            status_code=409,
+            detail="Light cone with this id already exists",
+        )
+
+    db_cone = db_models.LightConeDB(**new_cone.model_dump())
+
+    db.add(db_cone)
+    db.commit()
+    db.refresh(db_cone)
+
+    return db_cone
 
 
 @app.put("/light-cones/{cone_id}")
-def update_light_cone(cone_id: int, updated_cone: LightCone):
-    for index, light_cone in enumerate(light_cones):
-        if light_cone.id == cone_id:
-            light_cones[index] = updated_cone
-            return updated_cone
-    raise HTTPException(status_code=404,detail="Light cone not found")
+def update_light_cone(
+    cone_id: int,
+    updated_cone: LightCone,
+    db: Session = Depends(get_db),
+):
+    cone = (
+        db.query(db_models.LightConeDB)
+        .filter(db_models.LightConeDB.id == cone_id)
+        .first()
+    )
+
+    if cone is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Light cone not found",
+        )
+
+    if updated_cone.id != cone_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Path id and body id must match",
+        )
+
+    for field, value in updated_cone.model_dump().items():
+        setattr(cone, field, value)
+
+    db.commit()
+    db.refresh(cone)
+
+    return cone
 
 
 @app.delete("/light-cones/{cone_id}")
-def delete_light_cone(cone_id: int):
-    for index, light_cone in enumerate(light_cones):
-        if light_cone.id == cone_id:
-            deleted_cone = light_cones.pop(index)
+def delete_light_cone(
+    cone_id: int,
+    db: Session = Depends(get_db),
+):
+    cone = (
+        db.query(db_models.LightConeDB)
+        .filter(db_models.LightConeDB.id == cone_id)
+        .first()
+    )
 
-            return {
-                "message": "Light cone deleted",
-                "light_cone": deleted_cone
-            }
-    raise HTTPException(status_code=404,detail="Light cone not found")
+    if cone is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Light cone not found",
+        )
+
+    db.delete(cone)
+    db.commit()
+
+    return {"message": "Light cone deleted"}
 
 
 

@@ -3,3 +3,26 @@ services:
     build: .
     ports:
       - "8000:8000"
+    environment:
+      DATABASE_URL: mysql+pymysql://app_user:app_password@db:3306/light_cones
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_DATABASE: light_cones
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: app_password
+      MYSQL_ROOT_PASSWORD: root_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -proot_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql_data:
